@@ -1,82 +1,296 @@
 <template>
-    <!-- 顶部导航栏 -->
-    <nav class="navbar">
-      <div class="logo">汽车维修管理系统</div>
-      <div class="nav-links">
-        <!-- 静态角色显示（模拟用户/管理员） -->
-        <router-link to="/vehicle" v-if="userRole === 'user'">我的车辆</router-link>
-        <router-link to="/repairOrders" v-if="userRole === 'user'">维修订单</router-link>
-        
-        <router-link to="/users" v-if="userRole === 'admin'">用户管理</router-link>
-        <router-link to="/parts" v-if="userRole === 'admin'">零件管理</router-link>
-        
-        <!-- 静态登录状态 -->
-        <span v-if="isLoggedIn">{{ userInfo.username }}（{{ userRole }}）</span>
-        <router-link to="/login" v-else>登录</router-link>
-        <button @click="logout" v-if="isLoggedIn">退出</button>
-      </div>
-    </nav>
-  
-    <!-- 路由视图 -->
-    <router-view/>
-  </template>
-  
-  <script setup>
-  import { ref } from 'vue'
-  import { useRouter } from 'vue-router'
-  
-  const router = useRouter()
-  
-  // 静态用户状态（模拟已登录）
-  const isLoggedIn = ref(true) 
-  const userInfo = ref({ username: '测试用户' })
-  const userRole = ref('user') // 可改为 'admin' 查看管理员导航
-  
-  // 退出交互（纯UI跳转）
-  const logout = () => {
-    //.success('已退出登录')
-    router.push('/login')
+  <div class="user-dashboard">
+    <!-- 顶部操作栏 -->
+    <div class="header">
+      <h2>我的车辆</h2>
+      <el-button type="primary" @click="addVehicleDialogVisible = true">
+        添加车辆
+      </el-button>
+      <!-- 查询用户所有工单按钮 -->
+      <el-button type="info" style="margin-left: 10px" @click="viewAllOrdersDialogVisible = true">
+        查询所有工单
+      </el-button>
+    </div>
+
+    <!-- 车辆列表 -->
+    <el-card>
+      <el-table :data="vehicles" stripe border>
+        <el-table-column prop="license_plate" label="车牌号" width="150" />
+        <el-table-column prop="model" label="车型" width="180" />
+        <el-table-column prop="manufacture_year" label="制造年份" width="120" />
+        <el-table-column label="操作" width="240">
+          <template #default="scope">
+            <el-button type="success" size="small" @click="handleApplyRepair(scope.row)">
+              申请维修
+            </el-button>
+            <el-button type="info" size="small" style="margin-left: 10px" @click="handleViewOrders(scope.row)">
+              查看订单
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <!-- 添加车辆对话框 -->
+    <el-dialog v-model="addVehicleDialogVisible" title="添加车辆" width="40%">
+      <el-form ref="addVehicleFormRef" :model="addVehicleForm" :rules="addVehicleRules">
+        <el-form-item label="车牌号" prop="license_plate">
+          <el-input v-model="addVehicleForm.license_plate" placeholder="请输入车牌号" />
+        </el-form-item>
+        <el-form-item label="车型" prop="model">
+          <el-input v-model="addVehicleForm.model" placeholder="请输入车型（如：奥迪A6）" />
+        </el-form-item>
+        <el-form-item label="制造年份" prop="manufacture_year">
+          <el-input-number v-model="addVehicleForm.manufacture_year" :min="1900" :max="new Date().getFullYear()"
+            placeholder="请输入制造年份" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addVehicleDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitAddVehicle">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 申请维修对话框 -->
+    <el-dialog v-model="applyRepairDialogVisible" title="申请维修" width="40%">
+      <el-form>
+        <el-form-item label="选择维修类型" required>
+          <el-checkbox-group v-model="selectedTaskTypes">
+            <el-checkbox v-for="type in taskTypes" :key="type" :label="type">
+              {{ typeLabelMap[type] }}
+            </el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="applyRepairDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitRepairApplication">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 查看订单对话框 -->
+    <el-dialog v-model="orderDialogVisible" title="车辆订单" width="60%">
+      <el-table :data="orders" stripe border>
+        <el-table-column prop="order_id" label="订单ID" width="150" />
+        <el-table-column label="创建时间" width="200">
+          <template #default="scope">
+            {{ scope.row.create_time }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="120">
+          <template #default="scope">
+            <el-tag :type="scope.row.status? 'success' : 'info'">
+              {{ scope.row.status? '已完成' : '进行中' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="总费用" width="120">
+          <template #default="scope">
+            {{ scope.row.total_cost }} 元
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 查询用户所有工单对话框 -->
+    <el-dialog v-model="viewAllOrdersDialogVisible" title="用户所有工单" width="80%">
+      <el-table :data="allUserOrders" stripe border>
+        <el-table-column prop="order_id" label="订单ID" width="150" />
+        <el-table-column label="车辆信息" width="200">
+          <template #default="scope">
+            {{ scope.row.vehicle_id }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="120">
+          <template #default="scope">
+            <el-tag :type="scope.row.status? 'success' : 'info'">
+              {{ scope.row.status? '已完成' : '进行中' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted ,watch} from 'vue';
+import { ElMessage } from 'element-plus';
+import { addVehicleApi, getVehiclesApi } from '@/api/vehicle';
+import { createOrderApi, getOrdersOfVehicleApi, getAllOrdersByUserApi } from '@/api/order';
+
+// 从代码库 TaskType 枚举获取维修类型（与后端保持一致）
+const taskTypes = ['PAINTER', 'WELDER', 'MECHANIC', 'ELECTRICIAN'];
+const typeLabelMap = {
+  PAINTER: '漆工',
+  WELDER: '焊工',
+  MECHANIC: '机修',
+  ELECTRICIAN: '电工'
+};
+
+// 状态管理
+const vehicles = ref([]); // 用户车辆列表
+const addVehicleDialogVisible = ref(false); // 添加车辆对话框显示状态
+const applyRepairDialogVisible = ref(false); // 申请维修对话框显示状态
+const orderDialogVisible = ref(false); // 查看订单对话框显示状态
+const selectedVehicle = ref(null); // 当前操作的车辆
+const selectedTaskTypes = ref([]); // 选择的维修类型
+const orders = ref([]); // 当前车辆的订单列表
+const allUserOrders = ref([]); // 用户所有工单列表
+const viewAllOrdersDialogVisible = ref(false); // 查询用户所有工单对话框显示状态
+
+// 添加车辆表单
+const addVehicleForm = reactive({
+  license_plate: '',
+  model: '',
+  manufacture_year: null,
+  user_id: 0
+});
+
+const userInfo = localStorage.getItem('userInfo');
+const userId = ref(null);
+if (userInfo) {
+  const parsedUserInfo = JSON.parse(userInfo);
+  userId.value = parsedUserInfo.user_id; // 假设用户信息对象中有 id 属性
+  console.log('userId:', userId.value);
+} else {
+  console.log('userInfo 不存在');
+}
+
+// 添加车辆表单验证规则
+const addVehicleRules = reactive({
+  license_plate: [
+    { required: true, message: '请输入车牌号', trigger: 'blur' }
+  ],
+  model: [
+    { required: true, message: '请输入车型', trigger: 'blur' }
+  ],
+  manufacture_year: [
+    { required: true, message: '请输入制造年份', trigger: 'change' },
+    { type: 'number', message: '制造年份必须为数字', trigger: 'change' }
+  ]
+});
+
+const addVehicleFormRef = ref(null);
+
+// 生命周期：加载用户车辆
+onMounted(async () => {
+  try {
+    // 从登录用户信息中获取用户ID（示例：假设用户ID已存储在localStorage）
+    const res = await getVehiclesApi(userId.value);
+    vehicles.value = res.data;
+  } catch (error) {
+    ElMessage.error('加载车辆失败，请稍后再试');
   }
-  </script>
-  
-  <style scoped>
-  #app {
-    font-family: Avenir, Helvetica, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    color: #2c3e50;
+});
+
+// 处理添加车辆提交
+const submitAddVehicle = async () => {
+  await addVehicleFormRef.value.validate(async (valid) => {
+    if (!valid) return;
+    try {
+      addVehicleForm.user_id = userId.value;
+      const res = await addVehicleApi(addVehicleForm);
+      if (res.data > 0) {
+        ElMessage.success('车辆添加成功');
+        addVehicleDialogVisible.value = false;
+        // 刷新车辆列表
+        const newVehicles = await getVehiclesApi(userId.value);
+        vehicles.value = newVehicles.data;
+        // 清空表单
+        addVehicleForm.license_plate = '';
+        addVehicleForm.model = '';
+        addVehicleForm.manufacture_year = null;
+      } else {
+        ElMessage.error('车辆添加失败');
+      }
+    } catch (error) {
+      ElMessage.error('网络请求失败');
+    }
+  });
+};
+
+// 处理申请维修（打开对话框并记录当前车辆）
+const handleApplyRepair = (vehicle) => {
+  selectedVehicle.value = vehicle;
+  selectedTaskTypes.value = []; // 清空上次选择
+  applyRepairDialogVisible.value = true;
+};
+
+// 提交维修申请
+const submitRepairApplication = async () => {
+  if (selectedTaskTypes.value.length === 0) {
+    ElMessage.warning('请至少选择一个维修类型');
+    return;
   }
-  
-  .navbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 2rem;
-    background: #42b983;
-    color: white;
+  try {
+    // 构造 OrderCreationRequest
+    const request = {
+      order: {
+        user_id: userId.value, // 从登录信息获取用户ID
+        vehicle_id: selectedVehicle.value.vehicle_id // 当前车辆ID
+      },
+      taskTypes: selectedTaskTypes.value // 选择的维修类型列表
+    };
+    const res = await createOrderApi(request);
+    if (res.data > 0) {
+      ElMessage.success('维修申请提交成功');
+      applyRepairDialogVisible.value = false;
+    } else {
+      ElMessage.error('维修申请提交失败');
+    }
+  } catch (error) {
+    ElMessage.error('网络请求失败');
   }
-  
-  .nav-links {
-    display: flex;
-    gap: 2rem;
-    align-items: center;
+};
+
+// 处理查看订单（打开对话框并加载车辆订单）
+const handleViewOrders = async (vehicle) => {
+  selectedVehicle.value = vehicle;
+  try {
+    const res = await getOrdersOfVehicleApi(vehicle);
+    orders.value = res.data;
+    orderDialogVisible.value = true;
+  } catch (error) {
+    ElMessage.error('加载订单失败');
   }
-  
-  .nav-links router-link {
-    color: white;
-    text-decoration: none;
+};
+
+// 处理查询用户所有工单（打开对话框并加载用户所有工单）
+const handleViewAllOrders = async () => {
+  try {
+    const res = await getAllOrdersByUserApi(userId.value);
+    allUserOrders.value = res.data;
+    viewAllOrdersDialogVisible.value = true;
+  } catch (error) {
+    ElMessage.error('加载用户所有工单失败');
   }
-  
-  .nav-links router-link:hover {
-    text-decoration: underline;
+};
+
+// 监听查询用户所有工单对话框显示状态变化，确保每次打开时重新获取数据
+watch(viewAllOrdersDialogVisible, (newVal) => {
+  if (newVal) {
+    handleViewAllOrders();
   }
-  
-  button {
-    background: #fff;
-    color: #42b983;
-    border: none;
-    padding: 0.3rem 0.8rem;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  </style>
+});
+</script>
+
+<style scoped>
+.user-dashboard {
+  padding: 20px;
+  background-color: #f5f7fa;
+  min-height: 100vh;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.header h2 {
+  margin: 0;
+  color: #303133;
+}
+</style>
