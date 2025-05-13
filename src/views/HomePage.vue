@@ -93,30 +93,30 @@
     </el-dialog>
 
     <!-- 查询用户所有工单对话框 -->
-    <el-dialog v-model="viewAllOrdersDialogVisible" title="用户所有工单" width="80%">
-      <el-table :data="allUserOrders" stripe border>
-        <el-table-column prop="order_id" label="订单ID" width="150" />
-        <el-table-column label="车辆信息" width="200">
-          <template #default="scope">
-            {{ scope.row.vehicle_id }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="120">
-          <template #default="scope">
-            <el-tag :type="scope.row.status? 'success' : 'info'">
-              {{ scope.row.status? '已完成' : '进行中' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
+<el-dialog v-model="viewAllOrdersDialogVisible" title="用户所有工单" width="80%">
+  <el-table :data="allUserOrders" stripe border>
+    <el-table-column prop="order_id" label="订单ID" width="150" />
+    <el-table-column label="车辆信息" width="250">
+      <template #default="scope">
+        车牌号: {{ scope.row.vehicle_license_plate }} | 车型: {{ scope.row.vehicle_model }}
+      </template>
+    </el-table-column>
+    <el-table-column label="状态" width="120">
+      <template #default="scope">
+        <el-tag :type="scope.row.status ? 'success' : 'info'">
+          {{ scope.row.status ? '已完成' : '进行中' }}
+        </el-tag>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted ,watch} from 'vue';
 import { ElMessage } from 'element-plus';
-import { addVehicleApi, getVehiclesApi } from '@/api/vehicle';
+import { addVehicleApi, getVehicleByIdApi, getVehiclesApi } from '@/api/vehicle';
 import { createOrderApi, getOrdersOfVehicleApi, getAllOrdersByUserApi } from '@/api/order';
 
 // 从代码库 TaskType 枚举获取维修类型（与后端保持一致）
@@ -256,11 +256,22 @@ const handleViewOrders = async (vehicle) => {
   }
 };
 
-// 处理查询用户所有工单（打开对话框并加载用户所有工单）
+// 处理查询用户所有工单（打开对话框并加载用户所有工单及其关联车辆信息）
 const handleViewAllOrders = async () => {
   try {
     const res = await getAllOrdersByUserApi(userId.value);
-    allUserOrders.value = res.data;
+    // 假设 getAllOrdersByUserApi 返回的每条工单数据中包含 vehicle_id
+    // 我们需要根据 vehicle_id 获取车辆的详细信息
+    const orderPromises = res.data.map(async (order) => {
+      const vehicleRes = await getVehicleByIdApi(order.vehicle_id) // 假设存在这个API
+      return {
+        ...order,
+        vehicle_license_plate: vehicleRes.data.license_plate,
+        vehicle_model: vehicleRes.data.model
+      };
+    });
+    const enhancedOrders = await Promise.all(orderPromises);
+    allUserOrders.value = enhancedOrders;
     viewAllOrdersDialogVisible.value = true;
   } catch (error) {
     ElMessage.error('加载用户所有工单失败');

@@ -9,3 +9,7 @@ export const getVehiclesApi = (userId) =>{
 export const addVehicleApi =(addVehicleForm)=>{
     return axios.post('/carsys/vehicle/addNewVehicle', addVehicleForm)
 }
+
+export const getVehicleByIdApi = (vehicleId) =>{
+    return axios.get(`/carsys/vehicle/${vehicleId}`)
+}
